@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Runs sync_deleted.py --auto whenever ~/Downloads changes, so photos
+     trashed in Google Photos by Photo Judge land in Apple Photos' "Deleted in
+     Google" album automatically. Install and remove: see README.md. -->
+<dict>
+  <key>Label</key><string>com.john.photo-cull-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/Developer/photo-cull/.venv/bin/python</string>
+    <string>__HOME__/Developer/photo-cull/sync_deleted.py</string>
+    <string>--auto</string>
+  </array>
+  <key>WatchPaths</key><array><string>__HOME__/Downloads</string></array>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/photo-cull-sync.log</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/photo-cull-sync.log</string>
+</dict>
+</plist>
