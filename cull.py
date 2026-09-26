@@ -92,9 +92,9 @@ def main():
         print("Dry run. Add --apply to create the albums in Photos.")
         return
     if best:
-        PhotosAlbum(f"Best of {label}").add_list(best)
+        PhotosAlbum(f"Best of {label}").extend(best)
     if delete:
-        PhotosAlbum(f"Probably delete {label}").add_list(delete)
+        PhotosAlbum(f"Probably delete {label}").extend(delete)
     print("Albums created. Review them in Photos; nothing was deleted.")
 
 

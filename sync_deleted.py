@@ -43,6 +43,14 @@ def stem(name):
 
 
 SYNCED_TAG = " (synced to Apple)"
+# Point osxphotos at the library directly. Its own lookup of "the last library
+# used" reads a Photos preference that is blocked when launchd runs this
+# script, even with Full Disk Access (seen 2026-09-26).
+LIBRARY = os.environ.get("PHOTOS_LIBRARY", os.path.expanduser("~/Pictures/Photos Library.photoslibrary"))
+
+
+def open_library():
+    return osxphotos.PhotosDB(dbfile=LIBRARY)
 LOG = os.path.expanduser("~/Library/Logs/photo-cull-sync.log")
 
 
@@ -85,9 +93,9 @@ def newest_list():
 def match(entries, photos):
     """Return (sure, likely, missing).
 
-    sure:   same capture second (within tolerance) and same file name
-    likely: same capture second and same size, but the name differs
-            (common for photos saved from chat apps)
+    sure:   same capture second and same file name, or (no name) the only
+            photo taken within 1 s at exactly the same size
+    likely: the only photo within 2 s with the same size, rotated or 2 s off
     Each Apple photo is used at most once.
     """
     by_second = defaultdict(list)
@@ -103,9 +111,17 @@ def match(entries, photos):
         ]
         named = [p for p in candidates if e.get("fileName") and stem(p.original_filename) == stem(e["fileName"])]
         sized = [p for p in candidates if e.get("width") and {p.width, p.height} == {e["width"], e["height"]}]
+        # Google's web data carries no file names (seen 2026-09-26), so a match
+        # on the same second and the exact same size, with only one photo
+        # fitting, counts as sure. Rotated or 1-2 s off goes to "check first".
+        exact = [p for p in sized if (p.width, p.height) == (e["width"], e["height"])
+                 and abs(p.date.timestamp() - e["timestamp"] / 1000) <= 1]
         if len(named) >= 1:
             used.add(named[0].uuid)
             sure.append(named[0])
+        elif len(sized) == 1 and len(exact) == 1:
+            used.add(exact[0].uuid)
+            sure.append(exact[0])
         elif len(sized) == 1:  # only trust size when it's unambiguous
             used.add(sized[0].uuid)
             likely.append(sized[0])
@@ -129,7 +145,7 @@ def auto():
     if not lists and not restored:
         return
     try:
-        db = osxphotos.PhotosDB()
+        db = open_library()
     except Exception:
         log("cannot open Photos library\n" + traceback.format_exc())
         # Downloads changes often; warn at most once a day, not on every change.
@@ -150,13 +166,13 @@ def auto():
             continue
         found = sure + likely
         if sure:
-            PhotosAlbum(ALBUM).add_list(sure)
+            PhotosAlbum(ALBUM).extend(sure)
         if likely:
-            PhotosAlbum(ALBUM_CHECK).add_list(likely)
+            PhotosAlbum(ALBUM_CHECK).extend(likely)
         base, ext = os.path.splitext(path)
         os.rename(path, base + SYNCED_TAG + ext)
-        log(f"{os.path.basename(path)}: {len(entries)} listed, {len(sure)} name match, "
-            f"{len(likely)} size match, {len(missing)} not found")
+        log(f"{os.path.basename(path)}: {len(entries)} listed, {len(sure)} sure, "
+            f"{len(likely)} check first, {len(missing)} not found")
         n = lambda k: f"{k} photo" + ("" if k == 1 else "s")
         note = f'{n(len(found))} ready to delete in the "{ALBUM}" album'
         note += f" ({n(len(likely))} in \"check first\")." if likely else "."
@@ -210,11 +226,11 @@ def main():
         return auto()
 
     path = args.list or newest_list()
-    entries, (sure, likely, missing) = sync_list(osxphotos.PhotosDB(), path)
+    entries, (sure, likely, missing) = sync_list(open_library(), path)
 
     print(f"List: {os.path.basename(path)} ({len(entries)} photos trashed in Google)")
-    print(f"  Found in Apple Photos (time + name match): {len(sure)}")
-    print(f"  Found in Apple Photos (time + size match): {len(likely)}")
+    print(f"  Sure matches (to \"{ALBUM}\"): {len(sure)}")
+    print(f"  Check first (to \"{ALBUM_CHECK}\"): {len(likely)}")
     print(f"  Not found in Apple Photos:                 {len(missing)}")
     for e in missing[:10]:
         when = dt.datetime.fromtimestamp(e["timestamp"] / 1000)
@@ -224,9 +240,9 @@ def main():
         print("Dry run. Add --apply to put the matches in the album.")
         return
     if sure:
-        PhotosAlbum(ALBUM).add_list(sure)
+        PhotosAlbum(ALBUM).extend(sure)
     if likely:
-        PhotosAlbum(ALBUM_CHECK).add_list(likely)
+        PhotosAlbum(ALBUM_CHECK).extend(likely)
     print(f'Added {len(sure)} photos to "{ALBUM}" and {len(likely)} to "{ALBUM_CHECK}". '
           "Review and delete them in Photos.")
 
